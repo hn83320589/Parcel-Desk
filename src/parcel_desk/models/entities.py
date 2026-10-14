@@ -208,6 +208,18 @@ class Notification(Base):
     )
     recipients: Mapped[list[User]] = relationship(secondary=notification_recipients)
 
+    @property
+    def unit_code(self) -> str | None:
+        return self.unit.code if self.unit else None
+
+    @property
+    def package_ids(self) -> list[int]:
+        return [p.id for p in self.packages]
+
+    @property
+    def recipient_ids(self) -> list[int]:
+        return [u.id for u in self.recipients]
+
 
 class PackageReminder(Base):
     """提醒去重紀錄：唯一鍵保證同一件包裹同一種提醒一天最多一則。"""

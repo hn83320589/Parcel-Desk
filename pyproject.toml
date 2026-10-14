@@ -39,7 +39,7 @@ testpaths = ["tests"]
 addopts = "-q"
 filterwarnings = [
     # Starlette 建議改用 httpx2；目前 httpx 仍可正常運作，待評估後再替換
-    "ignore:Using `httpx` with `starlette.testclient` is deprecated:DeprecationWarning",
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated",
 ]
 
 [tool.ruff]

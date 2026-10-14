@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from parcel_desk.api import auth, units, users
+from parcel_desk.api import auth, notifications, packages, units, users
 from parcel_desk.clock import Clock, SystemClock
 from parcel_desk.config import Settings, get_settings
 from parcel_desk.db import make_engine, make_session_factory
@@ -33,6 +33,6 @@ def create_app(settings: Settings | None = None, clock: Clock | None = None) -> 
     app.state.session_factory = make_session_factory(engine)
 
     app.add_exception_handler(DomainError, domain_error_handler)
-    for module in (auth, units, users):
+    for module in (auth, units, users, packages, notifications):
         app.include_router(module.router)
     return app

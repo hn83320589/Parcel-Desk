@@ -30,6 +30,11 @@ class Forbidden(DomainError):
     code = "FORBIDDEN"
 
 
+class Unavailable(DomainError):
+    status_code = 503
+    code = "UNAVAILABLE"
+
+
 class InvalidField(DomainError):
     """格式正確但內容無效的欄位（例如戶別不存在），回 422 並指出欄位位置。"""
 
