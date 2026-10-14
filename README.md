@@ -139,6 +139,10 @@ Seed 會依時間順序重演過去 40 天的作業，通知、提醒、簽收�
 
 ![月報 CSV 匯出](docs/screenshots/11-monthly-report-csv.png)
 
+下載的 CSV 直接用 Microsoft Excel（macOS）雙擊開啟，中文表頭與「合計」列都正確顯示：
+
+![CSV 以 Excel 開啟](docs/screenshots/13-csv-in-excel.png)
+
 `GET /packages?needs_attention=true` 列出超過 48 小時未領、被標示「需處理」的冷藏包裹：
 
 ![冷藏需處理](docs/screenshots/12-cold-needs-attention.png)

@@ -6,7 +6,7 @@
 | 受測版本 | `main` 分支（本報告隨附的 commit） |
 | 測試環境 | macOS（Apple Silicon）、Python 3.12.15 / 3.13.16、SQLite（檔案型） |
 | 主要套件 | FastAPI 0.143.1、SQLAlchemy 2.1.4、Alembic 1.20.0、Pydantic 2.14.1、APScheduler 3.11.3、pytest 9.1.1 |
-| **結論** | **全部通過**：自動化測試 75/75，實機 E2E 15/15，Swagger 手動操作 12 個情境符合預期 |
+| **結論** | **全部通過**：自動化測試 75/75，實機 E2E 15/15，Swagger 手動操作 12 個情境、Excel 開啟 CSV 皆符合預期 |
 
 ## 1. 測試範圍與方法
 
@@ -16,7 +16,7 @@
 |---|---|---|---|
 | 自動化測試 | service 單元測試 + API 整合測試 | pytest、FastAPI TestClient、可注入時鐘 `FixedClock` | 所有商業規則，包含需要「時間前進」的逾期提醒與通知合併 |
 | 實機 E2E | 對真正啟動的 API 做黑箱測試 | `scripts/e2e_acceptance.py`（httpx） | 一鍵啟動、seed 資料、各角色實際登入後的完整流程 |
-| 手動操作 | 在 Swagger UI 實際點擊操作並截圖 | Playwright（Chromium） | 驗證 OpenAPI 文件與 Authorize 流程可用，截圖收錄於 README |
+| 手動操作 | 在 Swagger UI 實際點擊操作並截圖；用 Excel 開啟匯出的 CSV | Playwright（Chromium）、Microsoft Excel for Mac | 驗證 OpenAPI 文件與 Authorize 流程可用、CSV 中文不亂碼，截圖收錄於 README |
 
 **測試資料庫**：依題目規定使用**檔案型 SQLite**，不使用 `:memory:`。整個測試階段只對放在 `tmp_path_factory` 的模板 DB 執行一次 `alembic upgrade head`，每個測試再複製一份到自己的 `tmp_path`。因此每個測試都走過真正的 migration，彼此之間的資料也完全隔離。
 
@@ -106,7 +106,7 @@ uv run pytest --cov=parcel_desk --cov-report=term-missing
 | 9 | 退回 / 遺失後原碼簽收失敗，且該碼可被新包裹重用 | `test_marked_package_cannot_be_picked_up_with_its_code`、`test_released_code_can_be_reused_by_new_package` | E2E 11 | ✅ |
 | 10 | 可注入時鐘：一般包裹第 7 天提醒、同一天不重複；冷藏 24h 提醒、48h 需處理 | `test_reminders.py`（9 件） | E2E 12、截圖 12 | ✅ |
 | 11 | 月報平均領取時間與手算一致 | `test_monthly_report_matches_hand_calculation` | E2E 14 | ✅ |
-| 12 | CSV 用 Excel 開啟中文不亂碼 | `test_csv_has_bom_and_opens_in_excel_without_mojibake` | E2E 15（BOM `efbbbf`）、截圖 11 | ✅ |
+| 12 | CSV 用 Excel 開啟中文不亂碼 | `test_csv_has_bom_and_opens_in_excel_without_mojibake` | E2E 15（BOM `efbbbf`）、截圖 11、**截圖 13（Excel 實際開啟）** | ✅ |
 | 13 | 所有 schema 變更透過 Alembic；刪除 DB 後 `upgrade head` 可從零建好 | `test_migrations.py`（2 件） | 第 3 節實機驗證 | ✅ |
 | 14 | 測試至少 20 個且全數通過 | 75 個 | | ✅ |
 | 15 | `.gitignore` 排除資料庫檔，repo 中沒有 `.db` | | `git ls-files` 中 0 個 `.db` / `.sqlite` | ✅ |
@@ -132,10 +132,10 @@ uv run pytest --cov=parcel_desk --cov-report=term-missing
 | 2 | 月報測試的預期值錯誤 | 測試案例的手算錯誤（193.5 h 誤算為 217.5 h），程式本身正確 | 修正測試的預期值，並在測試註解中寫明計算過程 |
 | 3 | seed 中沒有「遺失」狀態 | 隨機資料剛好沒抽到 | 改為固定示範資料，明確放入退回、遺失、代領簽收各一件，不依賴亂數 |
 | 4 | 截圖中露出 JWT | Swagger 會顯示 curl 指令，裡面帶有 token | 截圖時以 CSS 隱藏 curl 與 Request URL 區塊 |
+| 5 | 無法擷取 Excel 視窗 | 終端機（iTerm2）尚未取得 macOS「螢幕錄製」權限 | 授權並重開 iTerm2 後，從 API 重新下載 CSV，以 Excel 開啟並只擷取該視窗 |
 
 ## 6. 未涵蓋與限制
 
-- **CSV 在 Excel 中開啟的畫面截圖**：測試環境的終端機沒有 macOS「螢幕錄製」權限，無法自動擷取 Excel 視窗。不亂碼的依據是：自動化測試驗證檔案開頭有 BOM、實機 E2E 驗證 `efbbbf`，以及「Excel 依 BOM 判斷 UTF-8」這個已知行為。
 - **真正的多執行緒併發寫入**沒有做壓力測試。兩櫃台的衝突情境是以兩個獨立的 DB session 模擬「同時讀到待領、先後送出」，藉此驗證條件式更新與唯一鍵的防護。
 - **Windows 實機**沒有實測。已加入 `tzdata` 相依，以確保 Windows 上可以使用 `Asia/Taipei` 時區。
 - 時間相關的驗收（第 7 天、24 / 48 小時、第 11 分鐘）在實機 E2E 中無法讓真實時間前進，所以由自動化測試的可注入時鐘驗證；實機則確認 seed 重演出的提醒紀錄確實存在。
