@@ -4,7 +4,7 @@
 
 - Python 3.12+、FastAPI、SQLAlchemy 2.x、Alembic、SQLite（檔案型）
 - 沒有前端，用 Swagger UI（`/docs`）操作
-- 設計說明見 [`docs/DESIGN.md`](docs/DESIGN.md)
+- 設計說明見 [`docs/DESIGN.md`](docs/DESIGN.md)，測試報告見 [`docs/TEST_REPORT.md`](docs/TEST_REPORT.md)
 
 ## 啟動方式
 
@@ -43,6 +43,8 @@ parcel-desk
 | `uv run parcel-desk seed --reset` | 刪除資料庫後重建並載入 seed |
 | `uv run alembic upgrade head` | 直接用 Alembic 從零建立資料庫 |
 | `uv run pytest` | 執行測試 |
+| `uv run pytest --cov=parcel_desk` | 執行測試並顯示覆蓋率 |
+| `uv run python scripts/e2e_acceptance.py` | 對啟動中的 API 逐項驗證驗收標準 |
 | `uv run ruff check . && uv run ruff format --check .` | lint / format 檢查 |
 
 ### 設定（環境變數或 `.env`）
@@ -69,11 +71,77 @@ parcel-desk
 
 Seed 內容：A、B 兩棟，各 10–12F × 1–4 號，共 **24 戶**，每戶 1–3 位住戶；**70 件**包裹，涵蓋待領、已簽收（含代領）、退回、遺失。另外刻意放了以下示範資料：
 
-- A-12F-3：一般與大型包裹各一件逾期中；最近 10 分鐘內登記的 3 件合併成 1 則通知
+- A-12F-3：一般與大型包裹各一件逾期中；約 1.5 小時前在 10 分鐘內連續登記的 3 件，合併成 1 則通知
 - 冷藏包裹：一件已發 24 小時提醒、一件已標示「需處理」
 - 代領人：有效、已過期、已撤銷三種都有
 
 Seed 會依時間順序重演過去 40 天的作業，通知、提醒、簽收紀錄都是走真正的 service 流程產生的，不是直接塞進資料表。
+
+## 操作示範（Swagger UI）
+
+以下截圖是在 seed 資料上，從 Swagger UI 實際操作的畫面。為了不在文件中露出 token，截圖隱藏了 curl 指令區塊。
+
+### 1. 開啟 Swagger UI
+
+啟動後打開 <http://localhost:8000/docs>，可以看到依功能分組的所有 API。右側有鎖頭圖示的端點需要先登入。
+
+![Swagger UI 總覽](docs/screenshots/01-swagger-overview.png)
+
+### 2. 登入
+
+點右上角 **Authorize**，輸入 username 與 password（`client_id`、`client_secret` 留空），按 **Authorize**。出現 *Authorized* 就代表登入成功，之後所有請求都會自動帶上 JWT。要切換角色時，先按 **Logout** 再重新登入。
+
+| 輸入帳號密碼 | 登入成功 |
+|---|---|
+| ![登入表單](docs/screenshots/02a-login-form.png) | ![已登入](docs/screenshots/02b-authorized.png) |
+
+### 3. 管理員登記包裹（`staff_a`）
+
+展開 `POST /packages`，點 **Try it out**，填入戶號、物流商、類型後按 **Execute**。回應 `201`，`pickup_code` 就是 6 位數領取碼。
+
+![登記包裹](docs/screenshots/03-register-package.png)
+
+戶號格式錯誤時回 `422`，`loc` 指出是 `body` 裡的 `unit_code` 欄位：
+
+![戶號格式錯誤 422](docs/screenshots/04-invalid-unit-code-422.png)
+
+### 4. 簽收（`staff_a`）
+
+1. 用 `GET /units/{unit_code}/residents` 查出該戶住戶，取得領取人的 `id`。代領的話則用 `GET /proxies?unit_code=...&only_valid=true` 取得代領人 `id`。
+
+   ![查詢該戶住戶](docs/screenshots/05-unit-residents.png)
+
+2. 用 `POST /pickups/by-code` 輸入領取碼、櫃台（`A` / `B`）與領取人後簽收。回應中的 `pickup` 記錄了領取人、經手管理員（`staff_id`）、櫃台與時間。
+
+   ![以領取碼簽收](docs/screenshots/06-pickup-by-code.png)
+
+3. 同一個領取碼再簽收一次會回 `409`，原本的簽收紀錄不變：
+
+   ![重複簽收 409](docs/screenshots/07-pickup-again-409.png)
+
+4. 選擇已過期的代領人回 `403`：
+
+   ![過期代領人 403](docs/screenshots/08-expired-proxy-403.png)
+
+### 5. 住戶查看通知與包裹（`a12f3_1`）
+
+以住戶身分執行 `GET /notifications`。同一戶在 10 分鐘內登記的包裹會合併成一則通知，內容列出每件的領取碼：
+
+![住戶通知合併](docs/screenshots/09-resident-notifications-merged.png)
+
+住戶查詢其他戶的包裹回 `404`：
+
+![住戶查他戶 404](docs/screenshots/10-resident-other-unit-404.png)
+
+### 6. 管委會查詢（`admin`）
+
+`GET /reports/monthly.csv?month=2026-10` 匯出月報，在 Swagger 中按 **Download file** 下載。檔案是 UTF-8 with BOM，Excel 直接開啟中文不會亂碼。`GET /reports/monthly` 則回傳同樣內容的 JSON。
+
+![月報 CSV 匯出](docs/screenshots/11-monthly-report-csv.png)
+
+`GET /packages?needs_attention=true` 列出超過 48 小時未領、被標示「需處理」的冷藏包裹：
+
+![冷藏需處理](docs/screenshots/12-cold-needs-attention.png)
 
 ## API 一覽與權限
 
@@ -183,7 +251,9 @@ Seed 會依時間順序重演過去 40 天的作業，通知、提醒、簽收�
 uv run pytest
 ```
 
-共 61 個測試。每個 API 測試都使用放在 `tmp_path` 的**檔案型** SQLite：整個測試階段只對一個模板 DB 執行一次 `alembic upgrade head`，每個測試再複製一份，所以 migration 本身也被驗證到。另有一個測試比對 ORM model 與 migration 的結果，model 改了卻沒寫 migration 時會失敗。
+共 **75 個測試**，全數通過，覆蓋率 97%，在 Python 3.12 與 3.13 皆驗證過。完整結果見 [測試報告](docs/TEST_REPORT.md)。
+
+每個 API 測試都使用放在 `tmp_path` 的**檔案型** SQLite：整個測試階段只對一個模板 DB 執行一次 `alembic upgrade head`，每個測試再複製一份，所以 migration 本身也被驗證到。另有一個測試比對 ORM model 與 migration 的結果，model 改了卻沒寫 migration 時會失敗。
 
 驗收項目與對應的測試檔：
 
@@ -198,6 +268,15 @@ uv run pytest
 | 第 7 天提醒、同一天不重複、冷藏 24h / 48h | `test_reminders.py` |
 | 月報平均領取時間與手算一致、CSV 不亂碼 | `test_reports.py` |
 | 從零 `alembic upgrade head` | `test_migrations.py`、`test_seed.py` |
+| 兩櫃台同時簽收只成功一次、帳號停用立即生效等邊界情境 | `test_edge_cases.py` |
+
+除了 pytest，還可以對實際啟動的 API 跑黑箱驗收腳本：
+
+```bash
+uv run parcel-desk seed --reset   # 乾淨的 seed 資料
+uv run parcel-desk                # 另開一個終端機啟動 API
+uv run python scripts/e2e_acceptance.py
+```
 
 ## 已知限制
 

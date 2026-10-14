@@ -22,3 +22,6 @@ data/
 .idea/
 .vscode/
 .DS_Store
+
+# Playwright 截圖工具暫存
+.playwright-mcp/
