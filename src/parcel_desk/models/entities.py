@@ -111,7 +111,11 @@ class Proxy(Base):
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime())
 
-    unit: Mapped[Unit] = relationship()
+    unit: Mapped[Unit] = relationship(lazy="joined")
+
+    @property
+    def unit_code(self) -> str:
+        return self.unit.code
 
     def is_valid_at(self, now: datetime) -> bool:
         return self.revoked_at is None and self.valid_from <= now <= self.valid_until
