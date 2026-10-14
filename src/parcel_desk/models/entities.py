@@ -10,6 +10,7 @@ from sqlalchemy import (
     String,
     Table,
     UniqueConstraint,
+    false,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -86,6 +87,8 @@ class User(Base):
     role: Mapped[Role] = mapped_column(str_enum(Role))
     unit_id: Mapped[int | None] = mapped_column(ForeignKey("units.id"), index=True)
     is_active: Mapped[bool] = mapped_column(default=True)
+    # 系統產生的一次性密碼（首次啟動的 admin）登入後必須先修改
+    must_change_password: Mapped[bool] = mapped_column(default=False, server_default=false())
     created_at: Mapped[datetime] = mapped_column(UTCDateTime())
 
     unit: Mapped[Unit | None] = relationship(back_populates="residents")

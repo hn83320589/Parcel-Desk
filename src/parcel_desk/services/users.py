@@ -1,3 +1,4 @@
+import secrets
 from datetime import datetime
 
 from sqlalchemy import exists, select
@@ -76,3 +77,38 @@ def authenticate(session: Session, username: str, password: str) -> User | None:
     if not verify_password(password, user.password_hash):
         return None
     return user
+
+
+BOOTSTRAP_ADMIN_USERNAME = "admin"
+
+
+def bootstrap_admin(session: Session, now: datetime) -> str | None:
+    """正式模式首次啟動（資料庫沒有任何帳號）時建立管委會帳號。
+
+    回傳一次性隨機密碼供呼叫端顯示；帳號被標記為必須先修改密碼。已有帳號時回傳 None。
+    """
+    if session.scalar(select(exists().where(User.id.is_not(None)))):
+        return None
+    password = secrets.token_urlsafe(12)
+    admin = create_user(
+        session,
+        username=BOOTSTRAP_ADMIN_USERNAME,
+        password=password,
+        display_name="管委會",
+        role=Role.ADMIN,
+        unit_code=None,
+        now=now,
+    )
+    admin.must_change_password = True
+    session.commit()
+    return password
+
+
+def change_password(session: Session, user: User, current: str, new: str) -> None:
+    if not verify_password(current, user.password_hash):
+        raise InvalidField("current_password", "目前密碼錯誤")
+    if current == new:
+        raise InvalidField("new_password", "新密碼不可與目前密碼相同")
+    user.password_hash = hash_password(new)
+    user.must_change_password = False
+    session.commit()

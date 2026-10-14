@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="PARCEL_", env_file=".env", extra="ignore")
 
     database_path: Path = Path("data/parcel_desk.db")
+    # `parcel-desk demo` 使用的示範資料庫，與正式資料庫分開，示範資料不會混入正式資料
+    demo_database_path: Path = Path("data/demo.db")
     # 不提供預設值：未設定時由 resolve_jwt_secret 隨機產生並存到 jwt_secret_file
     jwt_secret: str | None = None
     jwt_expire_minutes: int = 12 * 60

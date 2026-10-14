@@ -1,4 +1,6 @@
-"""Seed 資料：透過與 API 相同的 service 層、依時間順序「重演」過去約 40 天的作業，
+"""示範（seed）資料，只會寫入 `parcel-desk demo` 使用的示範資料庫。
+
+透過與 API 相同的 service 層、依時間順序「重演」過去約 40 天的作業，
 因此通知合併、逾期提醒、簽收紀錄都與真實流程一致。
 
 帳號（密碼）：
@@ -9,16 +11,19 @@
 """
 
 import heapq
+import os
 import random
 from collections import Counter as Tally
 from dataclasses import dataclass, field
 from datetime import datetime, time, timedelta
 from itertools import count
+from pathlib import Path
 
-from sqlalchemy import exists, func, select
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from parcel_desk.clock import local_date, local_datetime
+from parcel_desk.db import make_engine, make_session_factory, run_migrations
 from parcel_desk.models import (
     Counter,
     Package,
@@ -72,15 +77,36 @@ class SeedSummary:
         )
 
 
-def is_seeded(session: Session) -> bool:
-    return bool(session.scalar(select(exists().where(User.id.is_not(None)))))
+def _remove_sqlite_files(path: Path) -> None:
+    for suffix in ("", "-wal", "-shm"):
+        path.with_name(path.name + suffix).unlink(missing_ok=True)
 
 
-def seed_if_empty(session_factory: sessionmaker[Session], now: datetime) -> SeedSummary | None:
-    with session_factory() as session:
-        if is_seeded(session):
-            return None
-        return seed(session, now)
+def build_demo_database(path: Path, now: datetime) -> SeedSummary:
+    """建立示範資料庫，具原子性。
+
+    seed 依 service 流程逐步 commit，本身不具原子性；因此先在暫存檔完成 migration 與 seed，
+    全部成功後才以 os.replace 改名成正式檔名。中途中斷時不會留下半套資料，
+    已存在的舊示範資料庫也要等新的建好才會被取代。
+    """
+    building = path.with_name(path.name + ".building")
+    _remove_sqlite_files(building)  # 上次中斷留下的暫存檔
+    try:
+        run_migrations(building)
+        engine = make_engine(building)
+        try:
+            with make_session_factory(engine)() as session:
+                summary = seed(session, now)
+            # 把 WAL 內容寫回主檔，改名後的資料庫檔才是完整的
+            with engine.connect() as conn:
+                conn.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
+        finally:
+            engine.dispose()
+        _remove_sqlite_files(path)
+        os.replace(building, path)
+    finally:
+        _remove_sqlite_files(building)
+    return summary
 
 
 def seed(session: Session, now: datetime, rng_seed: int = 2026) -> SeedSummary:

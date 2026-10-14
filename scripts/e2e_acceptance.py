@@ -1,8 +1,7 @@
 """對「實際啟動中的 API」逐項驗證驗收標準（黑箱測試）。
 
 用法：
-    uv run parcel-desk seed --reset   # 乾淨的 seed 資料
-    uv run parcel-desk                # 另開一個終端機啟動 API
+    uv run parcel-desk demo --reset   # 以乾淨的示範資料啟動 API（另開一個終端機執行下一行）
     uv run python scripts/e2e_acceptance.py [--base-url http://localhost:8000]
 
 需要「時間前進」的項目（第 7 天提醒、冷藏 24/48 小時、10 分鐘合併的第 11 分鐘）

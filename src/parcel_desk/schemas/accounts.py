@@ -36,6 +36,11 @@ class UserUpdate(BaseModel):
     is_active: bool | None = None
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(max_length=72)
+    new_password: str = Field(min_length=8, max_length=72)
+
+
 class UserOut(ORMModel):
     id: int
     username: str
@@ -43,6 +48,7 @@ class UserOut(ORMModel):
     role: Role
     unit_code: str | None
     is_active: bool
+    must_change_password: bool
     created_at: LocalDateTime
 
 
