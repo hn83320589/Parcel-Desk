@@ -90,6 +90,10 @@ class User(Base):
 
     unit: Mapped[Unit | None] = relationship(back_populates="residents")
 
+    @property
+    def unit_code(self) -> str | None:
+        return self.unit.code if self.unit else None
+
 
 class Proxy(Base):
     """代領人：不需要帳號，簽收時由管理員從名單選擇並核對證件。"""

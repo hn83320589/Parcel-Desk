@@ -37,6 +37,10 @@ packages = ["src/parcel_desk"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+filterwarnings = [
+    # Starlette 建議改用 httpx2；目前 httpx 仍可正常運作，待評估後再替換
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated:DeprecationWarning",
+]
 
 [tool.ruff]
 line-length = 100
