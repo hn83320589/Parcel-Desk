@@ -1,0 +1,46 @@
+[project]
+name = "parcel-desk"
+version = "0.1.0"
+description = "社區大樓包裹代收系統 API"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "sqlalchemy>=2.0",
+    "alembic",
+    "pydantic-settings",
+    "pyjwt",
+    "bcrypt",
+    "python-multipart",
+    "apscheduler>=3.10,<4",
+    "tzdata",
+]
+
+[project.scripts]
+parcel-desk = "parcel_desk.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "httpx",
+    "ruff",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/parcel_desk"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
