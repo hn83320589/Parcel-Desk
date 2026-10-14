@@ -22,6 +22,10 @@ def get_clock(request: Request) -> Clock:
     return request.app.state.clock
 
 
+def get_jwt_secret(request: Request) -> str:
+    return request.app.state.jwt_secret
+
+
 def get_db(request: Request) -> Iterator[Session]:
     with request.app.state.session_factory() as session:
         yield session
@@ -30,10 +34,11 @@ def get_db(request: Request) -> Iterator[Session]:
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 ClockDep = Annotated[Clock, Depends(get_clock)]
 DbDep = Annotated[Session, Depends(get_db)]
+JwtSecretDep = Annotated[str, Depends(get_jwt_secret)]
 
 
 def get_current_user(
-    token: Annotated[str, Depends(oauth2_scheme)], db: DbDep, settings: SettingsDep
+    token: Annotated[str, Depends(oauth2_scheme)], db: DbDep, jwt_secret: JwtSecretDep
 ) -> User:
     unauthorized = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -41,7 +46,7 @@ def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        user_id = decode_access_token(token, settings.jwt_secret)
+        user_id = decode_access_token(token, jwt_secret)
     except jwt.InvalidTokenError as exc:
         raise unauthorized from exc
     user = db.get(User, user_id)

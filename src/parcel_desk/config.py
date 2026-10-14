@@ -10,12 +10,17 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="PARCEL_", env_file=".env", extra="ignore")
 
     database_path: Path = Path("data/parcel_desk.db")
-    jwt_secret: str = "dev-secret-change-me-in-production"
+    # 不提供預設值：未設定時由 resolve_jwt_secret 隨機產生並存到 jwt_secret_file
+    jwt_secret: str | None = None
     jwt_expire_minutes: int = 12 * 60
     host: str = "0.0.0.0"
     port: int = 8000
     scheduler_enabled: bool = True
     reminder_interval_minutes: int = 10
+
+    @property
+    def jwt_secret_file(self) -> Path:
+        return self.database_path.parent / ".jwt_secret"
 
     @property
     def database_url(self) -> str:

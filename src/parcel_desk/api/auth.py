@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 
-from parcel_desk.deps import CurrentUser, DbDep, SettingsDep
+from parcel_desk.deps import CurrentUser, DbDep, JwtSecretDep, SettingsDep
 from parcel_desk.schemas.accounts import Token, UserOut
 from parcel_desk.security import create_access_token
 from parcel_desk.services.users import authenticate
@@ -17,6 +17,7 @@ def login(
     form: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: DbDep,
     settings: SettingsDep,
+    jwt_secret: JwtSecretDep,
 ) -> Token:
     user = authenticate(db, form.username, form.password)
     if user is None:
@@ -28,7 +29,7 @@ def login(
     token = create_access_token(
         user.id,
         user.role.value,
-        settings.jwt_secret,
+        jwt_secret,
         # token 效期是安全機制，固定使用真實時間（PyJWT 驗證 exp 時也是用真實時間）
         datetime.now(UTC),
         timedelta(minutes=settings.jwt_expire_minutes),

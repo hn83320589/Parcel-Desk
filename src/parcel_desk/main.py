@@ -18,6 +18,7 @@ from parcel_desk.config import Settings, get_settings
 from parcel_desk.db import make_engine, make_session_factory
 from parcel_desk.errors import DomainError, domain_error_handler
 from parcel_desk.scheduler import start_scheduler
+from parcel_desk.security import resolve_jwt_secret
 
 
 def create_app(settings: Settings | None = None, clock: Clock | None = None) -> FastAPI:
@@ -46,6 +47,7 @@ def create_app(settings: Settings | None = None, clock: Clock | None = None) -> 
     )
     engine = make_engine(settings.database_path)
     app.state.settings = settings
+    app.state.jwt_secret = resolve_jwt_secret(settings.jwt_secret, settings.jwt_secret_file)
     app.state.clock = clock or SystemClock()
     app.state.engine = engine
     app.state.session_factory = make_session_factory(engine)
