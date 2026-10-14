@@ -1,4 +1,4 @@
-# Parcel Desk 架構規劃與設計（v1.0，已確認並實作）
+# Parcel Desk 架構規劃與設計（v1.1）
 
 > 實作與 README 為準；本文件保留設計脈絡。
 
@@ -186,6 +186,12 @@ admin ⊇ staff（管委會也在現場，可代行管理員操作）。
 
 ## 6. 時間與可注入時鐘
 - `Clock` Protocol：`now() -> datetime`（aware UTC）。
+### 6.1 JWT 密鑰（v1.1）
+- 沒有預設值。未設定 `PARCEL_JWT_SECRET` 時，首次啟動以 `secrets.token_urlsafe(48)` 產生，
+  以 `O_EXCL` 加上權限 600 建立 `data/.jwt_secret`，之後沿用，所以重啟不會登出使用者。
+- 有設定時：少於 32 字元、或命中曾公開的舊預設值（黑名單），就拒絕啟動。
+- 起因：v1.0 的預設值公開在 repo 中，任何人都能偽造管委會 token。
+
 - 例外：JWT 效期使用真實時間（安全機制，且 PyJWT 驗證 `exp` 時也使用真實時間）。
 - API 透過 `Depends(get_clock)` 從 `app.state.clock` 取得；測試以 `create_app(settings, clock=FixedClock(...))` 注入，可 `advance(minutes=11)`。
 - 排程器與 seed 也透過同一介面，所以「第 7 天」「24h/48h」「第 11 分鐘」都能在測試中精準控制，不用 sleep、不用 freezegun。
@@ -197,11 +203,19 @@ admin ⊇ staff（管委會也在現場，可代行管理員操作）。
 - 好處：電腦 08:00–10:00 關機，開機後第一次執行就會**補送**當天提醒；部署只要一個指令，管理室不用另外設定工作排程器。
 - 已知限制（寫入 README）：API 程序沒在跑就沒有提醒；冷藏提醒最多延遲 10 分鐘；只能跑一個 API 程序（多 worker 會重複排程，但唯一鍵會擋下重複紀錄）。
 
-## 8. 一鍵啟動
-`uv run parcel-desk`（`[project.scripts]`）：
-1. 以程式呼叫 `alembic upgrade head`（DB 不存在就建立）。
-2. DB 為空時載入 seed（已有資料則略過；`uv run parcel-desk seed --reset` 可重建）。
-3. 啟動 uvicorn `0.0.0.0:8000`（兩個櫃台走區網連線），Swagger 在 `/docs`。
+## 8. 一鍵啟動（v1.1：示範與正式分離）
+兩種模式使用不同的資料庫檔，示範資料不可能混入正式資料：
+
+- `uv run parcel-desk demo`（示範，滿足「一個指令啟動並載入 seed」）：使用 `data/demo.db`。
+  不存在時（或加上 `--reset`）先在 `demo.db.building` 完成 migration 與 seed，成功後才
+  `os.replace` 成正式檔名。seed 逐步 commit、本身不具原子性，改名這一步讓整體具有原子性。
+- `uv run parcel-desk`（正式）：`alembic upgrade head` → 沒有任何帳號時建立 `admin`，
+  於終端機顯示一次性隨機密碼並標記 `must_change_password`。永不載入示範資料。
+- 兩者都會在碰資料庫之前先檢查 JWT 密鑰（見 §6.1），不安全就以 exit 1 結束。
+- 最後啟動 uvicorn `0.0.0.0:8000`（兩個櫃台走區網連線），Swagger 在 `/docs`。
+
+> v1.0 的做法是「空資料庫就自動 seed」。review 指出兩個問題：正式上線會建立密碼公開的帳號；
+> seed 被中斷後，`is_seeded` 只檢查有沒有任何帳號，會誤判已完成而不再補齊。因此改為上述設計。
 
 SQLite 設定：`foreign_keys=ON`、`journal_mode=WAL`（兩櫃台同時讀寫）、`busy_timeout=5000`。
 

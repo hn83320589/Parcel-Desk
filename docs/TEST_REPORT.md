@@ -2,7 +2,7 @@
 
 | 項目 | 內容 |
 |---|---|
-| 測試日期 | 2026-10-14 |
+| 測試日期 | 2026-10-14（第一輪）、2026-10-14（第二輪：review 修正後回歸，見第 7 節） |
 | 受測版本 | `main` 分支（本報告隨附的 commit） |
 | 測試環境 | macOS（Apple Silicon）、Python 3.12.15 / 3.13.16、SQLite（檔案型） |
 | 主要套件 | FastAPI 0.143.1、SQLAlchemy 2.1.4、Alembic 1.20.0、Pydantic 2.14.1、APScheduler 3.11.3、pytest 9.1.1 |
@@ -137,5 +137,49 @@ uv run pytest --cov=parcel_desk --cov-report=term-missing
 ## 6. 未涵蓋與限制
 
 - **真正的多執行緒併發寫入**沒有做壓力測試。兩櫃台的衝突情境是以兩個獨立的 DB session 模擬「同時讀到待領、先後送出」，藉此驗證條件式更新與唯一鍵的防護。
-- **Windows 實機**沒有實測。已加入 `tzdata` 相依，以確保 Windows 上可以使用 `Asia/Taipei` 時區。
+- **Windows 實機**沒有實測。已加入 `tzdata` 相依，以確保 Windows 上可以使用 `Asia/Taipei` 時區。（第二輪已加入 Windows CI，見 7.4）
 - 時間相關的驗收（第 7 天、24 / 48 小時、第 11 分鐘）在實機 E2E 中無法讓真實時間前進，所以由自動化測試的可注入時鐘驗證；實機則確認 seed 重演出的提醒紀錄確實存在。
+
+## 7. 第二輪：review 修正後的回歸測試
+
+外部 review 指出三個問題。以下每一項都**先重現問題**，修正後**再以相同手法驗證**。
+
+### 7.1 問題重現（修正前）
+
+| # | 問題 | 重現方式 | 修正前結果 |
+|---|---|---|---|
+| 1 | JWT 預設密鑰公開在 repo | 用 repo 中的預設字串自行簽一個 `sub=1` 的 token，呼叫 `/reports/monthly` | **200**（取得管委會權限） |
+| 2 | 一鍵啟動把示範資料寫進正式資料庫；seed 中斷後不再補齊 | 檢查 `is_seeded`：只要有任何一個帳號就判定已完成；seed 逐步 commit | 確認屬實 |
+| 3 | `.coverage` 被 commit 進 repo；缺少 CI 與 LICENSE | `git ls-files` | 確認屬實 |
+
+### 7.2 修正後驗證
+
+| 項目 | 方法 | 結果 |
+|---|---|---|
+| 偽造 token | 對啟動中的 API 重跑 7.1 #1 的手法 | **401** ✅ |
+| 正常登入不受影響 | 真實帳號登入後呼叫同一個 API | 200 ✅ |
+| 密鑰檔 | `data/.jwt_secret` 權限、是否被 git 忽略 | `-rw-------`，被 `.gitignore` 的 `data/` 排除 ✅ |
+| 不安全的密鑰 | 以舊預設值或過短的密鑰啟動 | exit 1，並顯示清楚的錯誤訊息；資料庫檔沒有被建立 ✅ |
+| 正式模式首次啟動 | 刪除 `data/` 後執行 `parcel-desk` | 只有 1 個 admin，0 戶、0 件包裹；示範帳號 `staff_a` 登入回 401 ✅ |
+| 強制改密碼 | 以一次性密碼登入，呼叫 `/units` | 403 `PASSWORD_CHANGE_REQUIRED`；改密碼回 204 後，`/units` 回 200 ✅ |
+| 重啟不重建 admin | 再啟動一次正式模式 | 沒有再顯示首次啟動訊息 ✅ |
+| **demo 建置中斷** | `parcel-desk demo` 啟動 5 秒後 **`kill -9`** | `demo.db` 不存在，只留下 `demo.db.building` 暫存檔 ✅ |
+| 中斷後重新啟動 | 再次執行 `parcel-desk demo` | 清除暫存檔後完整重建：24 戶、52 帳號、70 件包裹 ✅ |
+| 實機 E2E | 在示範模式執行 `scripts/e2e_acceptance.py` | **15/15** ✅ |
+
+### 7.3 自動化測試
+
+新增 13 個測試，總數 **86 個，全數通過**，覆蓋率 97%：
+
+| 測試檔 | 件數 | 內容 |
+|---|---:|---|
+| `test_jwt_secret.py` | 7 | 自動產生並以權限 600 存檔、重啟沿用、每套安裝不同、拒絕過短與公開的預設值、**重現攻擊並確認回 401** |
+| `test_startup.py` | 6 | 正式模式只建立 admin、不載入示範資料；重啟不重建；改密碼前回 403；**模擬中斷時 demo 建置不留半套資料**；重建時取代而非疊加；不安全密鑰在碰資料庫前就結束 |
+
+`test_seed.py` 移除了 2 個測試舊行為（「空資料庫就 seed」的冪等性、`seed --reset` 指令）的測試，改由上表取代。
+
+`cli.py` 的覆蓋率是 63%：未覆蓋的是實際啟動 uvicorn 與印出橫幅的部分，已由 7.2 的實機驗證涵蓋。
+
+### 7.4 CI
+
+新增 GitHub Actions（`.github/workflows/ci.yml`）：在 **Ubuntu、Windows、macOS** 上，分別以 **Python 3.12 與 3.13** 執行 `uv sync --locked`、ruff 與 pytest。這也補上了第 6 節「Windows 實機沒有實測」的缺口。
