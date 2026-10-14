@@ -2,6 +2,7 @@
 name = "parcel-desk"
 version = "0.1.0"
 description = "社區大樓包裹代收系統 API"
+license = "MIT"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
