@@ -1,4 +1,6 @@
-# Parcel Desk 架構規劃與設計（v0.1 草案，待確認）
+# Parcel Desk 架構規劃與設計（v1.0，已確認並實作）
+
+> 實作與 README 為準；本文件保留設計脈絡。
 
 ## 1. 技術選型
 
@@ -164,7 +166,7 @@ admin ⊇ staff（管委會也在現場，可代行管理員操作）。
 |---|---|:-:|:-:|:-:|
 | POST | `/auth/token`（OAuth2 form） | ✓ | ✓ | ✓ |
 | GET | `/auth/me` | ✓ | ✓ | ✓ |
-| GET/POST/PATCH | `/units` | ✓ | 讀 | ✗ |
+| GET/POST/DELETE | `/units`（戶號即識別碼，不提供修改） | ✓ | 讀 | ✗ |
 | GET/POST/PATCH | `/users`（建立住戶/管理員帳號） | ✓ | ✗ | ✗ |
 | GET | `/units/{code}/residents` | ✓ | ✓ | 本戶 |
 | GET/POST | `/proxies`、DELETE `/proxies/{id}`（撤銷） | ✓ | 讀 | 本戶 |
@@ -174,7 +176,7 @@ admin ⊇ staff（管委會也在現場，可代行管理員操作）。
 | GET | `/packages/by-code/{code}` | ✓ | ✓ | ✗ |
 | POST | `/packages/{id}/pickup`、`/pickups/by-code` | ✓ | ✓ | ✗ |
 | POST | `/packages/{id}/exception` | ✓ | ✓ | ✗ |
-| GET | `/notifications`、`/notifications/{id}` | ✓ | ✓ | 本戶 / 給自己的 |
+| GET | `/notifications`、`/notifications/{id}` | ✓ | ✓ | 本戶（不含給管委會的「需處理」） |
 | GET | `/reports/monthly?month=2026-10`、`/reports/monthly.csv` | ✓ | ✗ | ✗ |
 | POST | `/admin/run-reminders`（手動觸發，方便驗收） | ✓ | ✗ | ✗ |
 
@@ -184,10 +186,11 @@ admin ⊇ staff（管委會也在現場，可代行管理員操作）。
 
 ## 6. 時間與可注入時鐘
 - `Clock` Protocol：`now() -> datetime`（aware UTC）。
-- API 透過 `Depends(get_clock)` 取得，測試用 `app.dependency_overrides` 換成 `FixedClock`，可 `advance(minutes=11)`。
+- 例外：JWT 效期使用真實時間（安全機制，且 PyJWT 驗證 `exp` 時也使用真實時間）。
+- API 透過 `Depends(get_clock)` 從 `app.state.clock` 取得；測試以 `create_app(settings, clock=FixedClock(...))` 注入，可 `advance(minutes=11)`。
 - 排程器與 seed 也透過同一介面，所以「第 7 天」「24h/48h」「第 11 分鐘」都能在測試中精準控制，不用 sleep、不用 freezegun。
 
-## 7. 排程方式（二擇一）— 建議 APScheduler 內嵌
+## 7. 排程方式（二擇一）— APScheduler 內嵌
 
 - API 啟動時（FastAPI lifespan）啟動 `BackgroundScheduler`，**每 10 分鐘**呼叫一次 `run_reminders(now)`。
 - 為什麼不是「每天 09:00 跑一次」：冷藏 24h / 48h 不是固定時點，需要較密集的檢查；而一般包裹的「09:00」由 `run_reminders` 內部判斷（`now >= 當日 09:00` 且今天沒提醒過），所以 09:00 後第一次執行就會送出、之後同日不再送。
@@ -206,7 +209,7 @@ SQLite 設定：`foreign_keys=ON`、`journal_mode=WAL`（兩櫃台同時讀寫�
 - 帳號：`admin / admin1234`、`staff_a / staff1234`（A 棟櫃台）、`staff_b / staff1234`、住戶如 `a12f3_1 / resident1234`。
 - 戶別：A、B 兩棟，各 10–12F × 1–4 號 = **24 戶**（含 `A-12F-3`）；每戶 1–3 位住戶。
 - 代領人：有效、已過期、已撤銷各數筆。
-- 包裹 **≥ 60 件**，橫跨上月與本月：待領、一般逾期、冷藏 24h、冷藏需處理、住戶簽收、代領簽收、退回、遺失。
+- 包裹 **70 件**，橫跨上月與本月：待領、一般逾期、冷藏 24h、冷藏需處理、住戶簽收、代領簽收、退回、遺失。
 - 透過 service 層 + 固定時鐘產生，所以通知、提醒、簽收紀錄都與實際流程一致。
 
 ## 10. 測試策略（預計 30+ 個）
