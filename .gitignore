@@ -25,3 +25,9 @@ data/
 
 # Playwright 截圖工具暫存
 .playwright-mcp/
+
+# 測試覆蓋率產物
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
