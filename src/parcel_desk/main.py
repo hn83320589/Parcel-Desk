@@ -19,6 +19,7 @@ from parcel_desk.db import make_engine, make_session_factory
 from parcel_desk.errors import DomainError, domain_error_handler
 from parcel_desk.scheduler import start_scheduler
 from parcel_desk.security import resolve_jwt_secret
+from parcel_desk.services.login_throttle import LoginThrottle
 
 
 def create_app(settings: Settings | None = None, clock: Clock | None = None) -> FastAPI:
@@ -48,6 +49,8 @@ def create_app(settings: Settings | None = None, clock: Clock | None = None) -> 
     engine = make_engine(settings.database_path)
     app.state.settings = settings
     app.state.jwt_secret = resolve_jwt_secret(settings.jwt_secret, settings.jwt_secret_file)
+    app.state.installation_id = None  # 第一次驗證 token 時才從資料庫讀取
+    app.state.login_throttle = LoginThrottle()
     app.state.clock = clock or SystemClock()
     app.state.engine = engine
     app.state.session_factory = make_session_factory(engine)

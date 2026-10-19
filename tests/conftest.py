@@ -51,6 +51,7 @@ from parcel_desk import security  # noqa: E402
 from parcel_desk.config import Settings  # noqa: E402
 from parcel_desk.main import create_app  # noqa: E402
 from parcel_desk.models import Role, User  # noqa: E402
+from parcel_desk.services.installation import get_installation_id  # noqa: E402
 from parcel_desk.services.units import create_unit  # noqa: E402
 from parcel_desk.services.users import create_user  # noqa: E402
 
@@ -93,7 +94,12 @@ class World:
     def headers(self, username: str) -> dict[str, str]:
         user = self.users[username]
         token = security.create_access_token(
-            user.id, user.role.value, self.secret, datetime.now(UTC), timedelta(hours=1)
+            user.id,
+            user.role.value,
+            self.secret,
+            datetime.now(UTC),
+            timedelta(hours=1),
+            get_installation_id(self.db),
         )
         return {"Authorization": f"Bearer {token}"}
 

@@ -240,3 +240,14 @@ class PackageReminder(Base):
     remind_date: Mapped[date] = mapped_column(Date())
     notification_id: Mapped[int] = mapped_column(ForeignKey("notifications.id"))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime())
+
+
+class Installation(Base):
+    """每個資料庫唯一的一列：安裝識別碼放進 JWT 的 aud，token 只能在簽發它的資料庫使用。"""
+
+    __tablename__ = "installation"
+    __table_args__ = (CheckConstraint("id = 1", name="single_row"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    installation_id: Mapped[str] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime())

@@ -1,6 +1,7 @@
 from parcel_desk.models.base import Base
 from parcel_desk.models.entities import (
     Counter,
+    Installation,
     Notification,
     NotificationKind,
     Package,
@@ -21,6 +22,7 @@ from parcel_desk.models.entities import (
 __all__ = [
     "Base",
     "Counter",
+    "Installation",
     "Notification",
     "NotificationKind",
     "Package",

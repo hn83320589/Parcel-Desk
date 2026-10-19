@@ -22,7 +22,8 @@ class Settings(BaseSettings):
 
     @property
     def jwt_secret_file(self) -> Path:
-        return self.database_path.parent / ".jwt_secret"
+        # 每個資料庫各自一把密鑰：正式與示範資料庫放在同一目錄時，token 也不會互通
+        return self.database_path.with_name(self.database_path.name + ".jwt_secret")
 
     @property
     def database_url(self) -> str:

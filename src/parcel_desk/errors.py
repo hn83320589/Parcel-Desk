@@ -35,6 +35,15 @@ class Unavailable(DomainError):
     code = "UNAVAILABLE"
 
 
+class TooManyRequests(DomainError):
+    status_code = 429
+    code = "TOO_MANY_REQUESTS"
+
+    def __init__(self, message: str, retry_after_seconds: int, code: str | None = None) -> None:
+        super().__init__(message, code)
+        self.headers = {"Retry-After": str(retry_after_seconds)}
+
+
 class InvalidField(DomainError):
     """格式正確但內容無效的欄位（例如戶別不存在），回 422 並指出欄位位置。"""
 
@@ -53,5 +62,7 @@ async def domain_error_handler(_request: Request, exc: DomainError) -> JSONRespo
         detail = [{"loc": [exc.location, exc.field], "msg": exc.message, "type": "value_error"}]
         return JSONResponse(status_code=exc.status_code, content={"detail": detail})
     return JSONResponse(
-        status_code=exc.status_code, content={"detail": exc.message, "code": exc.code}
+        status_code=exc.status_code,
+        content={"detail": exc.message, "code": exc.code},
+        headers=getattr(exc, "headers", None),
     )

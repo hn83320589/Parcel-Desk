@@ -11,6 +11,8 @@ from parcel_desk.config import Settings
 from parcel_desk.errors import Forbidden
 from parcel_desk.models import Role, User
 from parcel_desk.security import decode_access_token
+from parcel_desk.services.installation import get_installation_id
+from parcel_desk.services.login_throttle import LoginThrottle
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 
@@ -32,14 +34,31 @@ def get_db(request: Request) -> Iterator[Session]:
         yield session
 
 
+def get_audience(request: Request) -> str:
+    """JWT 的 aud：這個資料庫的安裝識別碼（第一次使用時讀取並快取）。"""
+    if request.app.state.installation_id is None:
+        with request.app.state.session_factory() as session:
+            request.app.state.installation_id = get_installation_id(session)
+    return request.app.state.installation_id
+
+
+def get_login_throttle(request: Request) -> LoginThrottle:
+    return request.app.state.login_throttle
+
+
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 ClockDep = Annotated[Clock, Depends(get_clock)]
 DbDep = Annotated[Session, Depends(get_db)]
 JwtSecretDep = Annotated[str, Depends(get_jwt_secret)]
+AudienceDep = Annotated[str, Depends(get_audience)]
+LoginThrottleDep = Annotated[LoginThrottle, Depends(get_login_throttle)]
 
 
 def get_authenticated_user(
-    token: Annotated[str, Depends(oauth2_scheme)], db: DbDep, jwt_secret: JwtSecretDep
+    token: Annotated[str, Depends(oauth2_scheme)],
+    db: DbDep,
+    jwt_secret: JwtSecretDep,
+    audience: AudienceDep,
 ) -> User:
     unauthorized = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -47,7 +66,7 @@ def get_authenticated_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        user_id = decode_access_token(token, jwt_secret)
+        user_id = decode_access_token(token, jwt_secret, audience)
     except jwt.InvalidTokenError as exc:
         raise unauthorized from exc
     user = db.get(User, user_id)
