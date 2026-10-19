@@ -1,4 +1,4 @@
-# Parcel Desk 架構規劃與設計（v1.1）
+# Parcel Desk 架構規劃與設計（v1.2）
 
 > 實作與 README 為準；本文件保留設計脈絡。
 
@@ -186,9 +186,15 @@ admin ⊇ staff（管委會也在現場，可代行管理員操作）。
 
 ## 6. 時間與可注入時鐘
 - `Clock` Protocol：`now() -> datetime`（aware UTC）。
-### 6.1 JWT 密鑰（v1.1）
+### 6.1 JWT 密鑰與 token 綁定（v1.2）
 - 沒有預設值。未設定 `PARCEL_JWT_SECRET` 時，首次啟動以 `secrets.token_urlsafe(48)` 產生，
-  以 `O_EXCL` 加上權限 600 建立 `data/.jwt_secret`，之後沿用，所以重啟不會登出使用者。
+  以 `O_EXCL` 加上權限 600 建立 `<資料庫檔名>.jwt_secret`（每個資料庫各自一把），之後沿用。
+  兩個程序同時首次啟動時，後到的一方 `FileExistsError` 後改讀既有檔案。
+- token 的 `aud` = 資料庫的安裝識別碼（`installation` 表，單列、UUID4，第一次使用時產生），
+  驗證時必須相符，沒有 `aud` 的 token 也拒絕。這是第二層防護：即使兩種模式設定同一把
+  `PARCEL_JWT_SECRET`，示範模式的 token 也無法用於正式模式。
+- v1.1 的密鑰檔是 `data/.jwt_secret`，正式與示範共用；兩邊 admin 的 id 都是 1，
+  導致示範模式公開帳號的 token 可以直接用於正式模式（review 實測回 200）。
 - 有設定時：少於 32 字元、或命中曾公開的舊預設值（黑名單），就拒絕啟動。
 - 起因：v1.0 的預設值公開在 repo 中，任何人都能偽造管委會 token。
 

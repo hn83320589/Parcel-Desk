@@ -82,7 +82,7 @@ parcel-desk
 |---|---|---|
 | `PARCEL_DATABASE_PATH` | `data/parcel_desk.db` | 正式資料庫位置（`data/` 已在 .gitignore） |
 | `PARCEL_DEMO_DATABASE_PATH` | `data/demo.db` | 示範資料庫位置 |
-| `PARCEL_JWT_SECRET` | 無（自動產生） | 未設定時，首次啟動隨機產生並存到資料庫同目錄的 `.jwt_secret`。自行設定時至少 32 個字元 |
+| `PARCEL_JWT_SECRET` | 無（自動產生） | 未設定時，首次啟動隨機產生，存到 `<資料庫檔名>.jwt_secret`（例如 `data/parcel_desk.db.jwt_secret`）。自行設定時至少 32 個字元 |
 | `PARCEL_JWT_EXPIRE_MINUTES` | `720` | 登入效期（一個班次 12 小時） |
 | `PARCEL_HOST` / `PARCEL_PORT` | `0.0.0.0` / `8000` | 監聽位址 |
 | `PARCEL_SCHEDULER_ENABLED` | `true` | 是否啟用內嵌排程 |
@@ -217,7 +217,8 @@ parcel-desk
 | 包裹已簽收、退回或遺失，又再簽收或標記 | **409**，簽收紀錄不變 |
 | 代領人過期、已撤銷或不屬於該戶；領取人不是該戶住戶 | **403** |
 | 住戶查詢他戶的包裹、通知或住戶名單 | **404** |
-| 未登入或 token 無效 | 401；角色權限不足回 403 |
+| 未登入或 token 無效（含其他資料庫簽發的 token） | 401；角色權限不足回 403 |
+| 同一帳號、同一來源 IP 連續登入失敗 5 次 | **429** `LOGIN_LOCKED`，`Retry-After` 標示剩餘秒數；鎖定 5 分鐘，期間密碼正確也拒絕 |
 | 以一次性密碼登入、尚未修改密碼 | **403** `PASSWORD_CHANGE_REQUIRED`（`/auth/me`、`/auth/change-password` 除外） |
 
 錯誤格式為 `{"detail": "訊息", "code": "PACKAGE_CLOSED"}`，422 沿用 FastAPI 的格式。
@@ -232,9 +233,11 @@ parcel-desk
 
 ## 安全性
 
-- **JWT 密鑰沒有預設值**。未設定 `PARCEL_JWT_SECRET` 時，首次啟動以 `secrets.token_urlsafe(48)` 隨機產生，存到資料庫同目錄的 `.jwt_secret`（權限 600）。之後的啟動都沿用這個檔案，所以重啟不會讓已登入的使用者被登出；每一套安裝的密鑰也都不同。
+- **JWT 密鑰沒有預設值**。未設定 `PARCEL_JWT_SECRET` 時，首次啟動以 `secrets.token_urlsafe(48)` 隨機產生，存到 `<資料庫檔名>.jwt_secret`（權限 600）。**每個資料庫各自一把**，之後的啟動都沿用，所以重啟不會讓已登入的使用者被登出。
 - 自行設定 `PARCEL_JWT_SECRET` 時，少於 32 個字元、或使用曾經公開過的舊預設值，系統會**拒絕啟動**，並在碰資料庫之前就結束。
-- **示範資料與正式資料分開**：示範帳號（密碼公開在本文件）只存在於 `data/demo.db`。正式模式永遠不會載入示範資料。
+- **token 綁定資料庫**：每個資料庫有自己的安裝識別碼（`installation` 表），簽發 token 時放進 JWT 的 `aud`，驗證時必須相符。因此示範模式用公開帳號取得的 token **不能**用在正式模式；即使兩種模式設定了同一把 `PARCEL_JWT_SECRET` 也一樣。
+- **示範資料與正式資料分開**：示範帳號（密碼公開在本文件）只存在於 `data/demo.db`。正式模式永遠不會載入示範資料，也不接受示範模式簽發的 token。
+- **登入失敗鎖定**：以「帳號 + 來源 IP」為單位，連續失敗 5 次鎖定 5 分鐘，避免在區域網路上暴力嘗試密碼。
 - 正式模式的第一個管委會帳號使用**一次性隨機密碼**，必須修改後才能使用其他功能。
 - 密碼以 bcrypt 雜湊；停用帳號會立即生效（每次請求都會重新讀取帳號狀態）。
 - 請妥善保管 `data/` 資料夾，裡面有資料庫與 JWT 密鑰。
@@ -300,7 +303,7 @@ parcel-desk
 uv run pytest
 ```
 
-共 **86 個測試**，全數通過，覆蓋率 97%，GitHub Actions CI 會在 Ubuntu、Windows、macOS 上，分別以 Python 3.12 與 3.13 執行。完整結果見 [測試報告](docs/TEST_REPORT.md)。
+共 **101 個測試**，全數通過，覆蓋率 97%，GitHub Actions CI 會在 Ubuntu、Windows、macOS 上，分別以 Python 3.12 與 3.13 執行。完整結果見 [測試報告](docs/TEST_REPORT.md)。
 
 每個 API 測試都使用放在 `tmp_path` 的**檔案型** SQLite：整個測試階段只對一個模板 DB 執行一次 `alembic upgrade head`，每個測試再複製一份，所以 migration 本身也被驗證到。另有一個測試比對 ORM model 與 migration 的結果，model 改了卻沒寫 migration 時會失敗。
 
@@ -319,6 +322,8 @@ uv run pytest
 | 從零 `alembic upgrade head` | `test_migrations.py` |
 | 正式模式不載入示範資料、首位 admin 須改密碼、demo 建置原子化 | `test_startup.py` |
 | JWT 密鑰自動產生、拒絕弱密鑰與公開預設值、偽造 token 回 401 | `test_jwt_secret.py` |
+| 示範模式的 token 不能用在正式模式（含共用密鑰的情況） | `test_token_isolation.py` |
+| 連續登入失敗 5 次鎖定 5 分鐘 | `test_login_throttle.py` |
 | 兩櫃台同時簽收只成功一次、帳號停用立即生效等邊界情境 | `test_edge_cases.py` |
 
 除了 pytest，還可以對實際啟動的 API 跑黑箱驗收腳本：
@@ -332,6 +337,7 @@ uv run python scripts/e2e_acceptance.py
 
 - **API 沒有在跑就不會提醒**。排程內嵌在 API 程序裡，電腦關機期間不會產生提醒；開機後第一次檢查會補送當天的提醒，但不會補送已經過去的日子。冷藏提醒最多延遲一個檢查間隔（預設 10 分鐘）。
 - **只能跑一個 API 程序**。如果用多個 uvicorn worker，每個 worker 都會各自啟動排程。唯一鍵會擋下重複的提醒紀錄，衝突的那次執行會整筆回滾，但仍然建議只用單一程序。這正是 SQLite 加單機部署的預設情境。
+- **登入鎖定的計數只存在記憶體中**，API 重啟後會歸零；而且是以「帳號 + IP」為單位，同一個 IP 輪流嘗試不同帳號時，每個帳號各自計算。對單一管理室部署來說已經足夠。
 - **JWT 無法主動撤銷**。停用帳號會立即生效，因為每次請求都會重新讀取帳號狀態；但已經簽發的 token 在效期內仍是有效的簽章。
 - 戶別沒有提供修改 API：戶號就是識別碼，要改號的話請刪除後重建（有住戶或包裹紀錄的戶別不能刪除）。
 - 住戶搬家、換戶，包裹照片、條碼掃描、實際推播（LINE、Email），都不在本次範圍內。

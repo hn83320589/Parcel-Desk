@@ -2,7 +2,7 @@
 
 | 項目 | 內容 |
 |---|---|
-| 測試日期 | 2026-10-14（第一輪）、2026-10-14（第二輪：review 修正後回歸，見第 7 節） |
+| 測試日期 | 2026-10-14（第一輪）、2026-10-14（第二輪，見第 7 節）、2026-10-19（第三輪，見第 8 節） |
 | 受測版本 | `main` 分支（本報告隨附的 commit） |
 | 測試環境 | macOS（Apple Silicon）、Python 3.12.15 / 3.13.16、SQLite（檔案型） |
 | 主要套件 | FastAPI 0.143.1、SQLAlchemy 2.1.4、Alembic 1.20.0、Pydantic 2.14.1、APScheduler 3.11.3、pytest 9.1.1 |
@@ -183,3 +183,38 @@ uv run pytest --cov=parcel_desk --cov-report=term-missing
 ### 7.4 CI
 
 新增 GitHub Actions（`.github/workflows/ci.yml`）：在 **Ubuntu、Windows、macOS** 上，分別以 **Python 3.12 與 3.13** 執行 `uv sync --locked`、ruff 與 pytest。這也補上了第 6 節「Windows 實機沒有實測」的缺口。
+
+## 8. 第三輪：第二次 review 修正後的回歸測試
+
+### 8.1 問題重現（修正前）
+
+| # | 問題 | 重現方式 | 修正前結果 |
+|---|---|---|---|
+| 1 | **示範模式的 token 可用於正式模式** | 示範模式（:8001）以 README 公開的 `admin / admin1234` 登入，把 token 拿去打正式模式（:8002） | `/reports/monthly` **200**，`/auth/me` 回傳**正式**資料庫的管委會帳號 |
+| 2 | 登入沒有失敗次數限制 | 檢查 `/auth/token` | 可無限次嘗試 |
+| 3 | 通知合併依賴 SQLite 寫入鎖但沒有記錄 | 檢查 `notify_arrival` | 沒有註解，也沒有併發測試 |
+| 4 | 密鑰檔 `O_EXCL` 沒有處理 `FileExistsError` | 檢查程式碼 | 兩個程序同時首次啟動時，後到的會拋出例外 |
+
+第 1 點的原因：兩種模式的密鑰檔都是 `data/.jwt_secret`，而兩邊 admin 的 user id 都是 1。第二輪報告寫的「示範資料與正式資料分開」因此並不完全成立，這是第二輪的遺漏。
+
+### 8.2 修正後驗證（實機）
+
+| 項目 | 結果 |
+|---|---|
+| 示範 token 打示範模式 `/reports/monthly` | 200（示範模式本身正常） |
+| 示範 token 打**正式**模式 `/reports/monthly` | **401** ✅ |
+| 示範 token 打**正式**模式 `/auth/me` | **401** ✅ |
+| 密鑰檔 | `demo.db.jwt_secret`、`parcel_desk.db.jwt_secret` 各自獨立 ✅ |
+| 正式模式連續輸入錯誤密碼 | 第 1–5 次回 401，第 6 次回 **429**；之後輸入**正確**密碼仍回 429，並帶 `Retry-After: 300` ✅ |
+| 示範模式 E2E | **15/15** ✅ |
+
+### 8.3 自動化測試
+
+新增 15 個測試，總數 **101 個，全數通過**，覆蓋率 97%：
+
+| 測試檔 | 件數 | 內容 |
+|---|---:|---|
+| `test_token_isolation.py` | 5 | 密鑰檔依資料庫分開；**示範 token 打正式模式回 401**；**兩邊共用同一把 `PARCEL_JWT_SECRET` 時仍回 401**（`aud` 防護）；沒有 `aud` 的舊 token 回 401；安裝識別碼在同一資料庫中穩定、不同資料庫之間不同 |
+| `test_login_throttle.py` | 6 | 5 次失敗後連正確密碼也鎖定、剛好 5 分鐘時解鎖；成功登入會重設計數；以帳號為單位；不存在的帳號也計數；以 IP 為單位；記憶體用量有上限 |
+| `test_notifications.py` | +1 | **兩個執行緒交錯登記同一戶**：A 已查完視窗、尚未 commit 時 B 開始；驗證 B 被 SQLite 寫入鎖擋住，最後只有 1 則通知、含 2 件包裹（連跑 5 次都穩定） |
+| `test_jwt_secret.py` | +3 | 兩個程序同時首次啟動時，後到的改讀既有檔案；空的或過短的密鑰檔會被拒絕 |
