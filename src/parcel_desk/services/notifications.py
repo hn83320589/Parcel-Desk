@@ -37,7 +37,15 @@ def _package_lines(packages: Iterable[Package]) -> str:
 
 
 def notify_arrival(session: Session, package: Package, now: datetime) -> Notification:
-    """呼叫端負責 commit，讓包裹與通知在同一個交易內完成。"""
+    """呼叫端負責 commit，讓包裹與通知在同一個交易內完成。
+
+    併發前提（換資料庫時必須重新處理）：「查詢開啟中的視窗 → 沒有就新建」本身不是原子操作。
+    目前的正確性來自 SQLite 的單一寫入鎖：呼叫端在這之前已 flush 包裹（INSERT），
+    取得了資料庫的寫入鎖，另一個櫃台的登記必須等這個交易 commit 才能寫入，
+    因此它查詢視窗時一定看得到這裡建立的通知（見 test_concurrent_registrations_...）。
+    換成 PostgreSQL 等列級鎖資料庫時會變成競態，需要改用 SELECT ... FOR UPDATE 鎖住戶別列，
+    或以 (unit_id, 視窗) 唯一約束加上衝突重試。
+    """
     notification = session.scalar(
         select(Notification)
         .where(

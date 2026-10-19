@@ -66,3 +66,65 @@ def test_resident_only_sees_own_unit_notifications(client, world):
     assert other["id"] not in notes[0]["package_ids"]
     resp = client.get(f"/notifications/{other_note_id}", headers=world.headers("alice"))
     assert resp.status_code == 404
+
+
+def test_concurrent_registrations_for_same_unit_merge_into_one_notification(
+    app, world, clock, monkeypatch
+):
+    """兩個櫃台交錯登記同一戶：A 已查完視窗、尚未 commit 時，B 開始登記。
+
+    合併的正確性依賴 SQLite 的單一寫入鎖：A 寫入包裹時取得寫入鎖，B 寫入包裹時
+    必須等 A commit，因此 B 查詢視窗時一定看得到 A 建立的通知。
+    """
+    import threading
+
+    from sqlalchemy import select
+
+    from parcel_desk.models import Notification, NotificationKind, PackageType
+    from parcel_desk.services import packages as package_service
+
+    a_ready, release_a = threading.Event(), threading.Event()
+    original = package_service.notify_arrival
+
+    def pausing_notify(session, package, now):
+        notification = original(session, package, now)
+        if threading.current_thread().name == "counter-A":
+            a_ready.set()
+            assert release_a.wait(timeout=5)
+        return notification
+
+    monkeypatch.setattr(package_service, "notify_arrival", pausing_notify)
+    errors = []
+
+    def register(staff):
+        try:
+            with app.state.session_factory() as s:
+                package_service.register_package(
+                    s,
+                    unit_code="A-12F-3",
+                    carrier="郵局",
+                    type=PackageType.NORMAL,
+                    staff=world.users[staff],
+                    now=clock.now(),
+                )
+        except Exception as exc:  # 讓主執行緒看得到錯誤
+            errors.append(exc)
+
+    a = threading.Thread(target=register, args=("staff_a",), name="counter-A")
+    b = threading.Thread(target=register, args=("staff_b",), name="counter-B")
+    a.start()
+    assert a_ready.wait(timeout=5)
+    b.start()  # B 會卡在 SQLite 寫入鎖
+    b.join(timeout=0.5)
+    assert b.is_alive(), "B 應該在等 A 釋放寫入鎖"
+    release_a.set()
+    a.join(timeout=5)
+    b.join(timeout=10)
+
+    assert errors == []
+    with app.state.session_factory() as s:
+        notes = list(
+            s.scalars(select(Notification).where(Notification.kind == NotificationKind.ARRIVAL))
+        )
+        assert len(notes) == 1
+        assert len(notes[0].packages) == 2
